@@ -1,0 +1,27 @@
+# Build artifacts
+*.tar
+*.tar.gz
+*.sha256
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+._*
+
+# Development tools
+.hive-mind/
+.claude-flow/
+
+# Environment
+.env
+.env.*
+*.local
+
+# Logs
+*.log

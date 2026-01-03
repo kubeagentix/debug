@@ -1,0 +1,267 @@
+# =============================================================================
+# KubeAgentiX Debug - Container Image Build & Release
+# =============================================================================
+# This workflow builds multi-architecture container images and publishes them
+# as GitHub Release artifacts with cryptographic signatures for verification.
+#
+# Security Features:
+# - Reproducible builds using SOURCE_DATE_EPOCH
+# - Cosign keyless signing for supply chain security
+# - SBOM generation for transparency
+# - Multi-architecture support (amd64, arm64)
+# =============================================================================
+
+name: Release Container Images
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+env:
+  IMAGE_NAME: kubeagentix-debug
+  PLATFORMS: linux/amd64,linux/arm64
+
+jobs:
+  build-and-release:
+    name: Build & Release Multi-Arch Images
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write      # Create releases
+      packages: write      # Push to GHCR (optional)
+      id-token: write      # Keyless signing with cosign
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Setup
+      # -----------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for reproducible builds
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64,amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.4.0
+        with:
+          cosign-release: 'v2.2.3'
+
+      - name: Install Syft (SBOM generator)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      # -----------------------------------------------------------------------
+      # Extract Metadata for Reproducible Builds
+      # -----------------------------------------------------------------------
+      - name: Extract metadata
+        id: meta
+        run: |
+          # Get version from tag or input
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+
+          # Use git commit timestamp for reproducibility
+          SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)
+          BUILD_DATE=$(date -u -d "@${SOURCE_DATE_EPOCH}" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -r "${SOURCE_DATE_EPOCH}" '+%Y-%m-%dT%H:%M:%SZ')
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_short=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "commit=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          echo "commit_short=${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+          echo "source_date_epoch=${SOURCE_DATE_EPOCH}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+          echo "build_id=${VERSION}-${GITHUB_SHA:0:7}" >> $GITHUB_OUTPUT
+
+      # -----------------------------------------------------------------------
+      # Build Multi-Architecture Images
+      # -----------------------------------------------------------------------
+      - name: Build multi-arch image (OCI format)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: false
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+            ${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ steps.meta.outputs.source_date_epoch }}
+            VERSION=${{ steps.meta.outputs.version_short }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=oci,dest=/tmp/${{ env.IMAGE_NAME }}.tar
+          provenance: false
+          sbom: false
+
+      # -----------------------------------------------------------------------
+      # Generate SBOM (Software Bill of Materials)
+      # -----------------------------------------------------------------------
+      - name: Generate SBOM
+        run: |
+          syft /tmp/${{ env.IMAGE_NAME }}.tar \
+            -o spdx-json=/tmp/sbom.spdx.json \
+            -o cyclonedx-json=/tmp/sbom.cyclonedx.json
+
+      # -----------------------------------------------------------------------
+      # Sign Artifacts with Cosign (Keyless)
+      # -----------------------------------------------------------------------
+      - name: Sign image and SBOM
+        run: |
+          # Sign the image tarball
+          cosign sign-blob /tmp/${{ env.IMAGE_NAME }}.tar \
+            --bundle /tmp/${{ env.IMAGE_NAME }}.tar.bundle \
+            -y
+
+          # Sign the SBOM
+          cosign sign-blob /tmp/sbom.spdx.json \
+            --bundle /tmp/sbom.spdx.json.bundle \
+            -y
+
+      # -----------------------------------------------------------------------
+      # Prepare Release Artifacts
+      # -----------------------------------------------------------------------
+      - name: Prepare release artifacts
+        run: |
+          cd /tmp
+
+          # Generate checksums
+          sha256sum ${{ env.IMAGE_NAME }}.tar > checksums.sha256
+          sha256sum sbom.spdx.json >> checksums.sha256
+          sha256sum sbom.cyclonedx.json >> checksums.sha256
+
+          # Compress image
+          gzip -9 -k ${{ env.IMAGE_NAME }}.tar
+
+          # Bundle SBOMs
+          tar czf sbom.tar.gz sbom.spdx.json sbom.cyclonedx.json
+
+          # Create signature metadata
+          cat > signature-metadata.json <<EOF
+          {
+            "image": "${{ env.IMAGE_NAME }}",
+            "version": "${{ steps.meta.outputs.version }}",
+            "commit": "${{ steps.meta.outputs.commit }}",
+            "build_id": "${{ steps.meta.outputs.build_id }}",
+            "build_date": "${{ steps.meta.outputs.build_date }}",
+            "source_date_epoch": "${{ steps.meta.outputs.source_date_epoch }}",
+            "platforms": "${{ env.PLATFORMS }}",
+            "repository": "${{ github.repository }}",
+            "workflow": "${{ github.workflow }}",
+            "run_id": "${{ github.run_id }}",
+            "signing_method": "cosign-keyless",
+            "oidc_issuer": "https://token.actions.githubusercontent.com"
+          }
+          EOF
+
+      # -----------------------------------------------------------------------
+      # Create GitHub Release
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: KubeAgentiX Debug ${{ steps.meta.outputs.version }}
+          tag_name: ${{ steps.meta.outputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            /tmp/${{ env.IMAGE_NAME }}.tar.gz
+            /tmp/${{ env.IMAGE_NAME }}.tar.bundle
+            /tmp/sbom.tar.gz
+            /tmp/sbom.spdx.json.bundle
+            /tmp/checksums.sha256
+            /tmp/signature-metadata.json
+          body: |
+            ## KubeAgentiX Debug ${{ steps.meta.outputs.version }}
+
+            A secure, ephemeral, policy-aware Kubernetes debugging runtime.
+
+            ### Security Features
+            - ✅ Non-root user (UID 65532)
+            - ✅ Pod Security Standards "restricted" compatible
+            - ✅ No SUID/SGID binaries
+            - ✅ Minimal Alpine base
+            - ✅ Cosign-signed artifacts
+            - ✅ SBOM included (SPDX & CycloneDX)
+
+            ### Supported Platforms
+            - `linux/amd64`
+            - `linux/arm64`
+
+            ### Quick Start
+
+            ```bash
+            # Download and load the image
+            gunzip kubeagentix-debug.tar.gz
+            docker load < kubeagentix-debug.tar
+
+            # Use with kubectl debug
+            kubectl debug mypod -it --image=kubeagentix-debug:${{ steps.meta.outputs.version }}
+            ```
+
+            ### Verification
+
+            ```bash
+            # Verify checksums
+            sha256sum -c checksums.sha256
+
+            # Verify cosign signature
+            cosign verify-blob kubeagentix-debug.tar \
+              --bundle kubeagentix-debug.tar.bundle \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity-regexp="https://github.com/${{ github.repository }}"
+            ```
+
+            ### Build Information
+            - **Build ID:** ${{ steps.meta.outputs.build_id }}
+            - **Commit:** ${{ steps.meta.outputs.commit }}
+            - **Build Date:** ${{ steps.meta.outputs.build_date }}
+            - **SOURCE_DATE_EPOCH:** ${{ steps.meta.outputs.source_date_epoch }}
+
+            ### Reproducible Build
+
+            ```bash
+            git checkout ${{ steps.meta.outputs.commit }}
+            docker buildx build \
+              --platform=${{ env.PLATFORMS }} \
+              --build-arg SOURCE_DATE_EPOCH=${{ steps.meta.outputs.source_date_epoch }} \
+              --build-arg VERSION=${{ steps.meta.outputs.version_short }} \
+              --build-arg COMMIT=${{ steps.meta.outputs.commit }} \
+              --build-arg BUILD_DATE=${{ steps.meta.outputs.build_date }} \
+              --output type=oci,dest=image.tar .
+            ```
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # Verify Build (Smoke Test)
+      # -----------------------------------------------------------------------
+      - name: Verify build
+        run: |
+          # Load and inspect the image
+          gunzip -k /tmp/${{ env.IMAGE_NAME }}.tar.gz
+          docker load < /tmp/${{ env.IMAGE_NAME }}.tar
+          docker images | grep ${{ env.IMAGE_NAME }}
+
+          echo "✅ Build verification complete"

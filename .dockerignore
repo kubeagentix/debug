@@ -1,0 +1,47 @@
+# Git
+.git
+.gitignore
+
+# Documentation (not needed in image)
+*.md
+!README.md
+docs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+Jenkinsfile
+
+# Local development
+.env
+.env.*
+*.local
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.zip
+
+# Hive Mind / Claude Flow (development tools)
+.hive-mind/
+.claude-flow/
+.claude/
+
+# Testing
+tests/
+*_test.go
+*.test
+
+# Makefile (not needed in image)
+Makefile
+
+# License (added via labels)
+LICENSE
