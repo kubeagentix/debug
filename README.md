@@ -4,6 +4,21 @@
 
 ---
 
+## Quick Start
+
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/kubeagentix/debug:latest
+
+# Use with kubectl debug
+kubectl debug mypod -it --image=ghcr.io/kubeagentix/debug:latest
+
+# Target a specific container (recommended)
+kubectl debug mypod -it --image=ghcr.io/kubeagentix/debug:latest --target=mycontainer
+```
+
+---
+
 ## Executive Summary
 
 KubeAgentiX Debug is a purpose-built container image for **interactive troubleshooting of Kubernetes workloads**. It is designed for enterprise environments with strict security, audit, and compliance requirements.
@@ -191,25 +206,26 @@ All network activity is explicit and operator-controlled.
 
 ### Image Signing
 
-All releases are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signatures via GitHub OIDC.
+All images are signed using [Cosign](https://github.com/sigstore/cosign) with keyless signatures via GitHub OIDC.
 
-**Verify the signature:**
+**Verify the image signature:**
 
 ```bash
-cosign verify-blob kubeagentix-debug.tar \
-  --bundle kubeagentix-debug.tar.bundle \
+cosign verify ghcr.io/kubeagentix/debug:latest \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp="https://github.com/kubeagentix/debug"
 ```
 
 ### Software Bill of Materials (SBOM)
 
-Every release includes SBOMs in both SPDX and CycloneDX formats:
+Every image includes an attached SBOM attestation:
 
 ```bash
-# Extract and review SBOM
-tar xzf sbom.tar.gz
-cat sbom.spdx.json | jq '.packages[].name'
+# Verify and extract SBOM attestation
+cosign verify-attestation ghcr.io/kubeagentix/debug:latest \
+  --type spdxjson \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp="https://github.com/kubeagentix/debug"
 ```
 
 ### Reproducible Builds
@@ -223,13 +239,7 @@ docker buildx build \
   --build-arg SOURCE_DATE_EPOCH=<epoch> \
   --build-arg VERSION=<version> \
   --build-arg COMMIT=<commit> \
-  -t kubeagentix-debug .
-```
-
-### Checksum Verification
-
-```bash
-sha256sum -c checksums.sha256
+  -t ghcr.io/kubeagentix/debug:local .
 ```
 
 ---
