@@ -96,6 +96,9 @@ RUN find / -type f \( -perm -4000 -o -perm -2000 \) -exec chmod a-s {} \; 2>/dev
 RUN mkdir -p /home/nonroot/.cache /home/nonroot/tmp && \
     chown -R nonroot:nonroot /home/nonroot
 
+# Copy shell configuration for branding
+COPY --chown=nonroot:nonroot rootfs/home/nonroot/.bashrc /home/nonroot/.bashrc
+
 # Set secure environment variables
 ENV HOME=/home/nonroot \
     USER=nonroot \
@@ -104,7 +107,9 @@ ENV HOME=/home/nonroot \
     # Disable bash history for security
     HISTFILE="" \
     # Set timezone
-    TZ=UTC
+    TZ=UTC \
+    # Version for branding
+    KUBEAGENTIX_VERSION=${VERSION}
 
 # -----------------------------------------------------------------------------
 # OCI Image Labels (following OCI Image Spec)

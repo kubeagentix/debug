@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-01-19
+
+### Added
+- ASCII art branding banner displayed on shell startup
+- Custom prompt with KubeAgentiX branding (`kubeagentix:path$`)
+- `help-debug` command for quick reference of common debugging commands
+- Useful shell aliases (ll, la, l, .., ...)
+- Bash completion support enabled by default
+- Version display in banner via `KUBEAGENTIX_VERSION` environment variable
+
+### Changed
+- Enhanced user experience with professional debug mode interface
+- Shell now displays system info, hostname, and available tools on connect
+
+## [1.0.1] - 2026-01-03
+
+### Fixed
+- GitHub Actions workflow improvements for GHCR publishing
+
 ## [1.0.0] - 2026-01-03
 
 ### Added
@@ -32,5 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No telemetry or outbound traffic by default
 - Bash history disabled for security
 
-[Unreleased]: https://github.com/kubeagentix/debug/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/kubeagentix/debug/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/kubeagentix/debug/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/kubeagentix/debug/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/kubeagentix/debug/releases/tag/v1.0.0
